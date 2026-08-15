@@ -1,72 +1,75 @@
 import "server-only";
 
 import { randomUUID } from "node:crypto";
-import { del, head, put } from "@vercel/blob";
+import { sql } from "./db";
 import type { Answer, ResponseRecord } from "./types";
-
-const BLOB_PATH = "data/responses.json";
-
-async function readResponses(): Promise<ResponseRecord[]> {
-  try {
-    const blob = await head(BLOB_PATH);
-
-    const response = await fetch(blob.url, {
-      cache: "no-store",
-    });
-
-    if (!response.ok) {
-      throw new Error("Failed to read responses.json");
-    }
-
-    const data: unknown = await response.json();
-
-    return Array.isArray(data) ? (data as ResponseRecord[]) : [];
-  } catch (error) {
-    console.error("readResponses error:", error);
-
-    return [];
-  }
-}
-
-async function writeResponses(
-  responses: ResponseRecord[],
-): Promise<void> {
-  await put(
-    BLOB_PATH,
-    JSON.stringify(responses, null, 2),
-    {
-      access: "public",
-      contentType: "application/json",
-      addRandomSuffix: false,
-      allowOverwrite: true,
-    },
-  );
-}
 
 export async function saveResponse(
   answer: Answer,
 ): Promise<ResponseRecord> {
-  const responses = await readResponses();
+  const id = randomUUID();
 
-  const record: ResponseRecord = {
-    id: randomUUID(),
-    answer,
-    createdAt: new Date().toISOString(),
+  const rows = await sql`
+    INSERT INTO responses (
+      id,
+      answer
+    )
+    VALUES (
+      ${id},
+      ${answer}
+    )
+    RETURNING
+      id,
+      answer,
+      created_at
+  `;
+
+  const row = rows[0];
+
+  return {
+    id: String(row.id),
+    answer: row.answer as Answer,
+    createdAt: new Date(row.created_at).toISOString(),
   };
-
-  responses.push(record);
-
-  await writeResponses(responses);
-
-  return record;
 }
 
 export async function getResponses(): Promise<ResponseRecord[]> {
-  return readResponses();
+  const rows = await sql`
+    SELECT
+      id,
+      answer,
+      created_at
+    FROM responses
+    ORDER BY created_at ASC
+  `;
+
+  return rows.map((row) => ({
+    id: String(row.id),
+    answer: row.answer as Answer,
+    createdAt: new Date(row.created_at).toISOString(),
+  }));
 }
 
 export async function getLatestResponse(): Promise<ResponseRecord | null> {
-  const responses = await readResponses();
+  const rows = await sql`
+    SELECT
+      id,
+      answer,
+      created_at
+    FROM responses
+    ORDER BY created_at DESC
+    LIMIT 1
+  `;
 
-  return responses.at(-1) ?? null;
+  const row = rows[0];
+
+  if (!row) {
+    return null;
+  }
+
+  return {
+    id: String(row.id),
+    answer: row.answer as Answer,
+    createdAt: new Date(row.created_at).toISOString(),
+  };
 }
