@@ -1,5 +1,9 @@
 import { NextResponse } from "next/server";
-import { getLatestResponse, getResponses, saveResponse } from "@/lib/response-store";
+import {
+  getLatestResponse,
+  getResponses,
+  saveResponse,
+} from "@/lib/response-store";
 import type { Answer } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -12,24 +16,47 @@ export async function POST(request: Request) {
     if (
       typeof body !== "object" ||
       body === null ||
-      !("answer" in body) ||
-      (body as { answer?: unknown }).answer !== "yes" &&
-        (body as { answer?: unknown }).answer !== "no"
+      !("answer" in body)
     ) {
       return NextResponse.json(
-        { success: false, error: "Invalid answer" },
-        { status: 400 }
+        {
+          success: false,
+          error: "Invalid request",
+        },
+        { status: 400 },
       );
     }
 
-    const answer = (body as { answer: Answer }).answer;
-    const record = await saveResponse(answer);
+    const answer = (body as { answer?: unknown }).answer;
 
-    return NextResponse.json({ success: true, record }, { status: 201 });
-  } catch {
+    if (answer !== "yes" && answer !== "no") {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Invalid answer",
+        },
+        { status: 400 },
+      );
+    }
+
+    const record = await saveResponse(answer as Answer);
+
     return NextResponse.json(
-      { success: false, error: "Unable to save response" },
-      { status: 500 }
+      {
+        success: true,
+        record,
+      },
+      { status: 201 },
+    );
+  } catch (error) {
+    console.error("POST /api/response error:", error);
+
+    return NextResponse.json(
+      {
+        success: false,
+        error: "Unable to save response",
+      },
+      { status: 500 },
     );
   }
 }
@@ -44,10 +71,15 @@ export async function GET() {
       latest,
       count: responses.length,
     });
-  } catch {
+  } catch (error) {
+    console.error("GET /api/response error:", error);
+
     return NextResponse.json(
-      { success: false, error: "Unable to read responses" },
-      { status: 500 }
+      {
+        success: false,
+        error: "Unable to read responses",
+      },
+      { status: 500 },
     );
   }
 }

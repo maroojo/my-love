@@ -1,37 +1,51 @@
 import "server-only";
 
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import path from "node:path";
+import { del, head, put } from "@vercel/blob";
 import type { Answer, ResponseRecord } from "./types";
 
-const dataDirectory = path.join(process.cwd(), "data");
-const dataFile = path.join(dataDirectory, "responses.json");
-
-async function ensureDataFile() {
-  await mkdir(dataDirectory, { recursive: true });
-
-  try {
-    await readFile(dataFile, "utf8");
-  } catch {
-    await writeFile(dataFile, "[]\n", "utf8");
-  }
-}
+const BLOB_PATH = "data/responses.json";
 
 async function readResponses(): Promise<ResponseRecord[]> {
-  await ensureDataFile();
-
-  const raw = await readFile(dataFile, "utf8");
-
   try {
-    const parsed: unknown = JSON.parse(raw);
-    return Array.isArray(parsed) ? (parsed as ResponseRecord[]) : [];
-  } catch {
+    const blob = await head(BLOB_PATH);
+
+    const response = await fetch(blob.url, {
+      cache: "no-store",
+    });
+
+    if (!response.ok) {
+      throw new Error("Failed to read responses.json");
+    }
+
+    const data: unknown = await response.json();
+
+    return Array.isArray(data) ? (data as ResponseRecord[]) : [];
+  } catch (error) {
+    console.error("readResponses error:", error);
+
     return [];
   }
 }
 
-export async function saveResponse(answer: Answer): Promise<ResponseRecord> {
+async function writeResponses(
+  responses: ResponseRecord[],
+): Promise<void> {
+  await put(
+    BLOB_PATH,
+    JSON.stringify(responses, null, 2),
+    {
+      access: "public",
+      contentType: "application/json",
+      addRandomSuffix: false,
+      allowOverwrite: true,
+    },
+  );
+}
+
+export async function saveResponse(
+  answer: Answer,
+): Promise<ResponseRecord> {
   const responses = await readResponses();
 
   const record: ResponseRecord = {
@@ -41,7 +55,8 @@ export async function saveResponse(answer: Answer): Promise<ResponseRecord> {
   };
 
   responses.push(record);
-  await writeFile(dataFile, `${JSON.stringify(responses, null, 2)}\n`, "utf8");
+
+  await writeResponses(responses);
 
   return record;
 }
@@ -52,5 +67,6 @@ export async function getResponses(): Promise<ResponseRecord[]> {
 
 export async function getLatestResponse(): Promise<ResponseRecord | null> {
   const responses = await readResponses();
+
   return responses.at(-1) ?? null;
 }
